@@ -220,24 +220,24 @@ public:
     Transform(Mat4x4f&& _m, Mat4x4f&& _inv_m) : m(std::move(_m)), inv_m(std::move(_inv_m)) {}
     Transform operator*(const Transform& _t) const { return Transform(m * _t.m, _t.inv_m * inv_m); }
 
-    Vector3f act(const Vector3f& _v) const {
-        Vector<float, 4> v{_v.at(0), _v.at(1), _v.at(2), 1.0};
+    Vector3f act(const Vector3f& _v, float w) const {
+        Vector<float, 4> v{_v.at(0), _v.at(1), _v.at(2), w};
         v = m * v;
         return Vector3f{v.at(0), v.at(1), v.at(2)};
     }
 
-    Vector3f inv(const Vector3f& _v) const {
-        Vector<float, 4> v{_v.at(0), _v.at(1), _v.at(2), 1.0};
+    Vector3f inv(const Vector3f& _v, float w) const {
+        Vector<float, 4> v{_v.at(0), _v.at(1), _v.at(2), w};
         v = inv_m * v;
         return Vector3f{v.at(0), v.at(1), v.at(2)};
     }
 
     Ray act(const Ray& _r) const {
-        return Ray(act(_r.getOrigin()), act(_r.getDir()));
+        return Ray(act(_r.getOrigin(), 1.0), act(_r.getDir(), 0.0));
     }
 
     Ray inv(const Ray& _r) const {
-        return Ray(inv(_r.getOrigin()), inv(_r.getDir()));
+        return Ray(inv(_r.getOrigin(), 1.0), inv(_r.getDir(), 0.0));
     }
 
     void print(std::ostream& _ostream) const {
@@ -333,11 +333,10 @@ struct SurfaceInteraction {
     Vector3f tangent;
 
     void actedBy(Transform _t) {
-        Vector3f origin = _t.act(Vector3f{0.0, 0.0, 0.0});
-        point = _t.act(point);
-        normal = (_t.act(normal) - origin).normalize();
-        wout = (_t.act(wout) - origin).normalize();
-        tangent = (_t.act(tangent) - origin).normalize();
+        point = _t.act(point, 1.0);
+        normal = _t.act(normal, 0.0).normalize();
+        wout = _t.act(wout, 0.0).normalize();
+        tangent = _t.act(tangent, 0.0).normalize();
     }
 
     Vector3f worldToLocal(const Vector3f& _v) const {
@@ -540,7 +539,7 @@ public:
             SurfaceInteraction si;
             if (!(_scene.intersect(wi, &si, &t) && t <= 0.99)) {
                 auto l_wout = _si.worldToLocal(_si.wout);
-                auto l_wi = _si.worldToLocal((-wi.getDir()).normalize());
+                auto l_wi = _si.worldToLocal((-wi.getDir().normalize()));
                 RGB f = _si.brdf->f(l_wout, l_wi) * std::abs(l_wi.dot(Vector3f{0.0, 1.0, 0.0}));
                 ld = f * l / lightPdf;
             }
