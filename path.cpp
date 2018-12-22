@@ -364,7 +364,7 @@ public:
         if (d.at(2) == 0.0) return false;
 
         float t = std::abs(o.at(2)) / d.at(2);
-        if (t < 0.0000001) return false;
+        if (t < 0.0000000001) return false;
         Vector3f point = _ray(t);
         if (point.at(0) < -(width/2.0) || (width/2.0) < point.at(0)
                 || point.at(1) < -(height/2.0) || (height/2.0) < point.at(1)) return false;
@@ -394,7 +394,7 @@ public:
         if (!r_op) return false;
 
         auto ts = r_op.value();
-        if (ts.second < 0.0000001f) return false;
+        if (ts.second < 0.0000000001f) return false;
         *_t = ts.first;
 
         _si->point = _ray(ts.first);
@@ -509,14 +509,14 @@ class Integrator {
 public:
     virtual ~Integrator() = default;
     void render(const Scene& _scene) const {
-        const int width = 256;
-        const int height = 256;
+        const int width = 512;
+        const int height = 512;
         char pixels[width * height * 3];
         for (int i = 0; i < height; i++) {
             for (int j = 0; j < width; j++) {
-                float x = (float)(j - 128) / (float)width * 2.0;
-                float y = (float)(i - 128) / (float)height * 2.0;
-                Ray ray(Vector3f{x, -y, -1.0f}, Vector3f{0.0f, 0.0f, 1.0f});
+                float x = ((float)j * 2.0 - (float)width) / (float)width * 2.0;
+                float y = ((float)i * 2.0 - (float)height) / (float)height * 2.0;
+                Ray ray(Vector3f{0.0f, 0.0f, -4.0f}, Vector3f{x, -y, 2.4f}.normalize());
                 RGB rgb = li(ray, _scene);
 
                 int pos = (i * width + j) * 3;
@@ -537,7 +537,7 @@ public:
         if (lightPdf > 0.0f) {
             float t;
             SurfaceInteraction si;
-            if (!(_scene.intersect(wi, &si, &t) && t <= 0.99)) {
+            if (!(_scene.intersect(wi, &si, &t) && t <= 0.999)) {
                 auto l_wout = _si.worldToLocal(_si.wout);
                 auto l_wi = _si.worldToLocal((-wi.getDir().normalize()));
                 RGB f = _si.brdf->f(l_wout, l_wi) * std::abs(l_wi.dot(Vector3f{0.0, 1.0, 0.0}));
@@ -560,18 +560,43 @@ public:
 };
 
 int main() {
-    Transform plane_wtl = translate({0.0f, -0.3f, 0.0f}) * rotateX(Pi / 4.0f) * rotateZ(Pi / 4.0f);
-    std::shared_ptr<Shape> plane(new Plane(2.0, 2.0));
-    std::shared_ptr<Primitive> p_plane(new Primitive(plane, plane_wtl, RGB{1.0, 1.0, 1.0}));
+    Transform plane1_wtl = translate({0.0f, 0.0f, 3.5f});
+    std::shared_ptr<Shape> plane1(new Plane(8.0, 8.0));
+    std::shared_ptr<Primitive> p_plane1(new Primitive(plane1, plane1_wtl, RGB{1.0, 1.0, 1.0}));
     
-    Transform sphere_wtl = translate({0.0f, 0.0f, 0.0f});
-    std::shared_ptr<Shape> sphere(new Sphere(0.3));
-    std::shared_ptr<Primitive> p_sphere(new Primitive(sphere, sphere_wtl, RGB{1.0, 1.0, 0.0}));
+    Transform plane2_wtl = translate({-3.5f, 0.0f, 0.0f}) * rotateY(-Pi / 2.0f);
+    std::shared_ptr<Shape> plane2(new Plane(8.0, 8.0));
+    std::shared_ptr<Primitive> p_plane2(new Primitive(plane2, plane2_wtl, RGB{1.0, 0.0, 0.0}));
 
-    std::shared_ptr<Light> light(new PointLight(Vector3f{2.0f, 2.0f, -2.0f}, RGB{20.0f, 20.0f, 20.0f}));
+    Transform plane3_wtl = translate({3.5f, 0.0f, 0.0f}) * rotateY(Pi / 2.0f);
+    std::shared_ptr<Shape> plane3(new Plane(8.0, 8.0));
+    std::shared_ptr<Primitive> p_plane3(new Primitive(plane3, plane3_wtl, RGB{0.0, 1.0, 0.0}));
+
+    Transform plane4_wtl = translate({0.0f, 3.5f, 0.0f}) * rotateX(-Pi / 2.0f);
+    std::shared_ptr<Shape> plane4(new Plane(8.0, 8.0));
+    std::shared_ptr<Primitive> p_plane4(new Primitive(plane4, plane4_wtl, RGB{1.0, 1.0, 1.0}));
+
+    Transform plane5_wtl = translate({0.0f, -3.5f, 0.0f}) * rotateX(Pi / 2.0f);
+    std::shared_ptr<Shape> plane5(new Plane(8.0, 8.0));
+    std::shared_ptr<Primitive> p_plane5(new Primitive(plane5, plane5_wtl, RGB{1.0, 1.0, 1.0}));
+
+    Transform sphere1_wtl = translate({-1.5f, -2.8f, 1.5f});
+    std::shared_ptr<Shape> sphere1(new Sphere(0.7));
+    std::shared_ptr<Primitive> p_sphere1(new Primitive(sphere1, sphere1_wtl, RGB{1.0, 1.0, 0.0}));
+
+    Transform sphere2_wtl = translate({2.0f, -2.5f, 1.0f});
+    std::shared_ptr<Shape> sphere2(new Sphere(1.0));
+    std::shared_ptr<Primitive> p_sphere2(new Primitive(sphere2, sphere2_wtl, RGB{0.6, 0.7, 0.8}));
+
+    std::shared_ptr<Light> light(new PointLight(Vector3f{0.0f, 3.4f, 0.0f}, RGB{40.0f, 35.0f, 30.0f}));
     Scene scene(light);
-    scene.addPrimitive(p_plane);
-    scene.addPrimitive(p_sphere);
+    scene.addPrimitive(p_plane1);
+    scene.addPrimitive(p_plane2);
+    scene.addPrimitive(p_plane3);
+    scene.addPrimitive(p_plane4);
+    scene.addPrimitive(p_plane5);
+    scene.addPrimitive(p_sphere1);
+    scene.addPrimitive(p_sphere2);
 
     Integrator integrator;
     integrator.render(scene);
