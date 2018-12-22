@@ -548,6 +548,11 @@ public:
         return ld;
     }
 
+    virtual RGB li(const Ray&, const Scene&) const = 0;
+};
+
+class DirectIntegrator : public Integrator {
+    public:
     RGB li(const Ray& _ray, const Scene& _scene) const {
         SurfaceInteraction si;
         float t;
@@ -598,7 +603,7 @@ int main() {
     scene.addPrimitive(p_sphere1);
     scene.addPrimitive(p_sphere2);
 
-    Integrator integrator;
+    DirectIntegrator integrator;
     integrator.render(scene);
 
     return 0;
