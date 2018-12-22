@@ -512,6 +512,7 @@ public:
         const int width = 512;
         const int height = 512;
         char pixels[width * height * 3];
+        int percent = 0;
         for (int i = 0; i < height; i++) {
             for (int j = 0; j < width; j++) {
                 float x = ((float)j * 2.0 - (float)width) / (float)width * 2.0;
@@ -523,6 +524,10 @@ public:
                 pixels[pos]   = (unsigned char)(255.f * std::min(rgb.at(0), 1.0f));
                 pixels[pos+1] = (unsigned char)(255.f * std::min(rgb.at(1), 1.0f));
                 pixels[pos+2] = (unsigned char)(255.f * std::min(rgb.at(2), 1.0f));
+                if ((float)(i * width + j) / (float)(width * height) * 100.0 > percent) {
+                    percent++;
+                    std::cout<<"("<<i<<", "<<j<<") completed. ("<<percent<<"%)"<<std::endl;
+                }
             }
         }
         stbi_write_png("out.png", width, height, STBI_rgb, pixels, 0);
