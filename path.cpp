@@ -11,8 +11,17 @@
 #include <vector>
 #include <limits>
 #include <optional>
+#include <random>
+#include <utility>
 
 constexpr double Pi = std::ldexp(std::acos(0.0), 1);
+
+std::mt19937 engine;
+
+inline float generateCanonical() {
+    constexpr size_t bits = std::numeric_limits<float>::digits;
+    return std::generate_canonical<float, bits>(engine);
+}
 
 inline std::optional<std::pair<float, float>> quadratic(float _a, float _b, float _c) {
     double d = (double)_b * (double)_b - 4 * (double)_a * (double)_c;
@@ -415,6 +424,22 @@ public:
     BRDF() = default;
     virtual ~BRDF() = default;
     virtual RGB f(const Vector3f& _wo, const Vector3f& _wi) const = 0;
+    virtual RGB sampleF(const Vector3f& _wo, Vector3f* _wi, float* _pdf) const {
+        float r = std::sqrt(generateCanonical());
+        float theta = 2 * Pi * generateCanonical();
+        Vector<float, 2> p{r * std::cos(theta), r * std::sin(theta)};
+        float z = std::sqrt(std::max(0.0f, 1 - p.at(0) * p.at(0) - p.at(1) * p.at(1)));
+        (*_wi)[0] = p.at(0);
+        (*_wi)[1] = p.at(1);
+        (*_wi)[2] = z;
+
+        if (_wo.at(2) < 0.0) (*_wi)[2] *= -1;
+        *_pdf = pdf(_wo, *_wi);
+        return f(_wo, *_wi);
+    }
+    virtual float pdf(const Vector3f& _wo, const Vector3f& _wi) const {
+        return (_wo.at(2) * _wi.at(2) > 0.0) ? std::abs(_wi.at(2)) : 0.0;
+    }
 };
 
 class LambertianReflection : public BRDF {
