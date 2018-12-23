@@ -13,9 +13,14 @@
 #include <optional>
 #include <random>
 #include <utility>
+#include <algorithm>
+#include <thread>
+#include <future>
 
 constexpr double Pi = std::ldexp(std::acos(0.0), 1);
 
+#define THREAD_NUM 16
+#define SIM_PER_THR 32
 
 // Sampler 
 class Sampler {
@@ -67,6 +72,11 @@ public:
         return v;
     }
 
+    Vector& operator+=(const Vector& _v) {
+        for (size_t i = 0; i < N; i++) c.at(i) += _v.c.at(i);
+        return *this;
+    }
+
     Vector operator-() const {
         Vector v;
         for (size_t i = 0; i < N; i++) v.c[i] = -c.at(i);
@@ -91,10 +101,30 @@ public:
         return v;
     }
 
+    Vector& operator*=(const Vector& _v) {
+        for (size_t i = 0; i < N; i++) c.at(i) *= _v.c.at(i);
+        return *this;
+    }
+
+    Vector& operator*=(T _t) {
+        for (size_t i = 0; i < N; i++) c.at(i) *= _t;
+        return *this;
+    }
+
     Vector operator/(T _t) const {
         Vector v;
         for (size_t i = 0; i < N; i++) v.c[i] = c.at(i) / _t;
         return v;
+    }
+
+    Vector& operator/=(T _t) {
+        for (size_t i = 0; i < N; i++) c.at(i) /= _t;
+        return *this;
+    }
+
+    Vector& operator/=(const Vector& _v) const {
+        for (size_t i = 0; i < N; i++) c.at(i) /= _v.c.at(i);
+        return *this;
     }
 
     Vector& operator=(const Vector& _v) {
@@ -130,6 +160,20 @@ public:
         T sum = 0.0;
         for (size_t i = 0; i < N; i++) sum += c.at(i) * _v.c.at(i);
         return sum;
+    }
+
+    T max() const {
+        return *std::max_element(begin(c), end(c));
+    }
+
+    Vector clamp(T _low, T _high) {
+        Vector v;
+        for (size_t i = 0; i < N; i++) {
+            if (c.at(i) < _low) v.c[i] = _low;
+            else if (_high < c.at(i)) v.c[i] = _high;
+            else v.c[i] = c.at(i);
+        }
+        return v;
     }
 
     void print(std::ostream& _ostream) const {
@@ -359,6 +403,13 @@ struct SurfaceInteraction {
     Vector3f worldToLocal(const Vector3f& _v) const {
         return Vector3f{_v.dot(tangent), _v.dot(normal), _v.dot(cross(tangent, normal))};
     }
+
+    Vector3f localToWorld(const Vector3f& _v) const {
+        auto ts = cross(tangent, normal);
+        return Vector3f{tangent.at(0) * _v.at(0) + normal.at(0) * _v.at(1) + ts.at(0) * _v.at(2),
+                        tangent.at(1) * _v.at(0) + normal.at(1) * _v.at(1) + ts.at(1) * _v.at(2),
+                        tangent.at(2) * _v.at(0) + normal.at(2) * _v.at(1) + ts.at(2) * _v.at(2)};
+    }
 };
 
 
@@ -438,15 +489,15 @@ public:
         Vector<float, 2> p{r * std::cos(theta), r * std::sin(theta)};
         float z = std::sqrt(std::max(0.0f, 1 - p.at(0) * p.at(0) - p.at(1) * p.at(1)));
         (*_wi)[0] = p.at(0);
-        (*_wi)[1] = p.at(1);
-        (*_wi)[2] = z;
+        (*_wi)[1] = z;
+        (*_wi)[2] = p.at(1);
 
-        if (_wo.at(2) < 0.0) (*_wi)[2] *= -1;
+        if (_wo.at(1) < 0.0) (*_wi)[1] *= -1;
         *_pdf = pdf(_wo, *_wi);
         return f(_wo, *_wi);
     }
     virtual float pdf(const Vector3f& _wo, const Vector3f& _wi) const {
-        return (_wo.at(2) * _wi.at(2) > 0.0) ? std::abs(_wi.at(2)) : 0.0;
+        return (_wo.at(1) * _wi.at(1) > 0.0) ? std::abs(_wi.at(1)) / Pi : 0.0;
     }
 };
 
@@ -540,8 +591,6 @@ public:
 // Integrator
 class Integrator {
 public:
-    Sampler sampler;
-
     virtual ~Integrator() = default;
     void render(const Scene& _scene) const {
         const int width = 512;
@@ -553,15 +602,25 @@ public:
                 float x = ((float)j * 2.0 - (float)width) / (float)width * 2.0;
                 float y = ((float)i * 2.0 - (float)height) / (float)height * 2.0;
                 Ray ray(Vector3f{0.0f, 0.0f, -4.0f}, Vector3f{x, -y, 2.4f}.normalize());
-                RGB rgb = li(ray, _scene);
+                std::vector<std::future<RGB>> rgbs;
+                for (int k = 0; k < THREAD_NUM; k++) {
+                    rgbs.push_back(std::async(std::launch::async, [&]() {
+                                RGB rgb{0.0, 0.0, 0.0};
+                                for (int s = 0; s < SIM_PER_THR; s++) rgb += li(ray, _scene);
+                                return rgb /= (float)SIM_PER_THR;
+                                }));
+                }
+                RGB rgb{0.0, 0.0, 0.0};
+                for (int k = 0; k < THREAD_NUM; k++) rgb += rgbs[k].get().clamp(0.0f, 1.0f);
+                rgb /= (float)THREAD_NUM;
 
                 int pos = (i * width + j) * 3;
-                pixels[pos]   = (unsigned char)(255.f * std::min(rgb.at(0), 1.0f));
-                pixels[pos+1] = (unsigned char)(255.f * std::min(rgb.at(1), 1.0f));
-                pixels[pos+2] = (unsigned char)(255.f * std::min(rgb.at(2), 1.0f));
-                if ((float)(i * width + j) / (float)(width * height) * 100.0 > percent) {
+                pixels[pos]   = (unsigned char)(255.f * rgb.at(0));
+                pixels[pos+1] = (unsigned char)(255.f * rgb.at(1));
+                pixels[pos+2] = (unsigned char)(255.f * rgb.at(2));
+                if ((float)(i * width + j) / (float)(width * height) * 1000.0 > percent) {
                     percent++;
-                    std::cout<<"("<<i<<", "<<j<<") completed. ("<<percent<<"%)"<<std::endl;
+                    std::cout<<"("<<i<<", "<<j<<") completed. ("<<(float)percent/10.0<<"%)"<<std::endl;
                 }
             }
         }
@@ -592,7 +651,7 @@ public:
 };
 
 class DirectIntegrator : public Integrator {
-    public:
+public:
     RGB li(const Ray& _ray, const Scene& _scene) const {
         SurfaceInteraction si;
         float t;
@@ -601,6 +660,42 @@ class DirectIntegrator : public Integrator {
             if (light) return estimateDirect(si, light, _scene);
         }
         return RGB{0.0, 0.0, 0.0};
+    }
+};
+
+class PathIntegrator : public Integrator {
+public:
+    RGB li(const Ray& _ray, const Scene& _scene) const {
+        Sampler sampler;
+
+        RGB l{0.0, 0.0, 0.0};
+        RGB beta{1.0, 1.0, 1.0};
+        Ray ray = _ray;
+
+        for (int bounces = 0; bounces < 5; bounces++) {
+            SurfaceInteraction si;
+            float t;
+            if (!_scene.intersect(ray, &si, &t)) break;
+
+            auto light = _scene.getLight();
+            l += beta * estimateDirect(si, light, _scene);
+
+            Vector3f l_wo = si.worldToLocal(-ray.getDir().normalize()), l_wi;
+            float pdf;
+            RGB f = si.brdf->sampleF(l_wo, &l_wi, &pdf, sampler);
+            if (pdf == 0.0) break;
+            beta *= f * std::abs(l_wi.dot(Vector3f{0.0, 1.0, 0.0})) / pdf;
+
+            ray = Ray(si.point, si.localToWorld(l_wi));
+
+            if (beta.max() < 1.0 && bounces > 3) {
+                float q = std::max(0.05f, 1.0f-beta.max());
+                if (sampler.generateCanonical() < q) break;
+                beta /= 1.0 - q;
+            }
+        }
+
+        return l;
     }
 };
 
@@ -643,7 +738,7 @@ int main() {
     scene.addPrimitive(p_sphere1);
     scene.addPrimitive(p_sphere2);
 
-    DirectIntegrator integrator;
+    PathIntegrator integrator;
     integrator.render(scene);
 
     return 0;

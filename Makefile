@@ -1,5 +1,5 @@
 CC = g++
-CFLAG = -std=c++17
+CFLAG = -std=c++17 -pthread
 SRC = path.cpp
 
 all: $(SRC)
