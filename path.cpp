@@ -20,7 +20,7 @@
 constexpr double Pi = std::ldexp(std::acos(0.0), 1);
 
 #define THREAD_NUM 16
-#define SIM_PER_THR 32
+#define SIM_PER_THR 64
 
 // Sampler 
 class Sampler {
@@ -603,15 +603,16 @@ public:
                 float y = ((float)i * 2.0 - (float)height) / (float)height * 2.0;
                 Ray ray(Vector3f{0.0f, 0.0f, -4.0f}, Vector3f{x, -y, 2.4f}.normalize());
                 std::vector<std::future<RGB>> rgbs;
+                std::array<Sampler, THREAD_NUM> samplers;
                 for (int k = 0; k < THREAD_NUM; k++) {
-                    rgbs.push_back(std::async(std::launch::async, [&]() {
+                    rgbs.push_back(std::async(std::launch::async, [&](size_t k) {
                                 RGB rgb{0.0, 0.0, 0.0};
-                                for (int s = 0; s < SIM_PER_THR; s++) rgb += li(ray, _scene);
+                                for (int s = 0; s < SIM_PER_THR; s++) rgb += li(ray, _scene, samplers.at(k)).clamp(0.0f, 1.0f);
                                 return rgb /= (float)SIM_PER_THR;
-                                }));
+                                }, k));
                 }
                 RGB rgb{0.0, 0.0, 0.0};
-                for (int k = 0; k < THREAD_NUM; k++) rgb += rgbs[k].get().clamp(0.0f, 1.0f);
+                for (int k = 0; k < THREAD_NUM; k++) rgb += rgbs[k].get();
                 rgb /= (float)THREAD_NUM;
 
                 int pos = (i * width + j) * 3;
@@ -647,12 +648,12 @@ public:
         return ld;
     }
 
-    virtual RGB li(const Ray&, const Scene&) const = 0;
+    virtual RGB li(const Ray&, const Scene&, Sampler&) const = 0;
 };
 
 class DirectIntegrator : public Integrator {
 public:
-    RGB li(const Ray& _ray, const Scene& _scene) const {
+    RGB li(const Ray& _ray, const Scene& _scene, Sampler& _sampler) const {
         SurfaceInteraction si;
         float t;
         if (_scene.intersect(_ray, &si, &t)) {
@@ -665,14 +666,12 @@ public:
 
 class PathIntegrator : public Integrator {
 public:
-    RGB li(const Ray& _ray, const Scene& _scene) const {
-        Sampler sampler;
-
+    RGB li(const Ray& _ray, const Scene& _scene, Sampler& _sampler) const {
         RGB l{0.0, 0.0, 0.0};
         RGB beta{1.0, 1.0, 1.0};
         Ray ray = _ray;
 
-        for (int bounces = 0; bounces < 5; bounces++) {
+        for (int bounces = 0; bounces < 7; bounces++) {
             SurfaceInteraction si;
             float t;
             if (!_scene.intersect(ray, &si, &t)) break;
@@ -682,7 +681,7 @@ public:
 
             Vector3f l_wo = si.worldToLocal(-ray.getDir().normalize()), l_wi;
             float pdf;
-            RGB f = si.brdf->sampleF(l_wo, &l_wi, &pdf, sampler);
+            RGB f = si.brdf->sampleF(l_wo, &l_wi, &pdf, _sampler);
             if (pdf == 0.0) break;
             beta *= f * std::abs(l_wi.dot(Vector3f{0.0, 1.0, 0.0})) / pdf;
 
@@ -690,7 +689,7 @@ public:
 
             if (beta.max() < 1.0 && bounces > 3) {
                 float q = std::max(0.05f, 1.0f-beta.max());
-                if (sampler.generateCanonical() < q) break;
+                if (_sampler.generateCanonical() < q) break;
                 beta /= 1.0 - q;
             }
         }
